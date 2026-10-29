@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>接入</title>
+<style>
+    :root {
+        color-scheme: light dark;
+        --bg: #f6f7f9;
+        --card: #ffffff;
+        --fg: #1c2024;
+        --muted: #6b7280;
+        --border: #e3e6ea;
+        --accent: #2f6feb;
+        --danger: #c0392b;
+    }
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --bg: #14171a;
+            --card: #1c2024;
+            --fg: #e6e8ea;
+            --muted: #9aa3ad;
+            --border: #2c3238;
+            --accent: #5b8cff;
+            --danger: #e57373;
+        }
+    }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--fg);
+        font: 15px/1.6 system-ui, -apple-system, "Segoe UI", "PingFang SC",
+              "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+    .card {
+        width: 100%;
+        max-width: 420px;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 28px;
+    }
+    h1 { margin: 0 0 6px; font-size: 19px; font-weight: 600; }
+    p.lead { margin: 0 0 22px; color: var(--muted); font-size: 13px; }
+    label { display: block; margin: 0 0 6px; font-size: 13px; font-weight: 500; }
+    .field { margin-bottom: 16px; }
+    .hint { margin: 5px 0 0; font-size: 12px; color: var(--muted); }
+    input {
+        width: 100%;
+        padding: 9px 11px;
+        font: inherit;
+        font-size: 14px;
+        color: var(--fg);
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        outline: none;
+    }
+    input:focus { border-color: var(--accent); }
+    input[type=password] { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    button {
+        width: 100%;
+        margin-top: 6px;
+        padding: 10px;
+        font: inherit;
+        font-size: 15px;
+        font-weight: 500;
+        color: #fff;
+        background: var(--accent);
+        border: none;
+        border-radius: 7px;
+        cursor: pointer;
+    }
+    button:disabled { opacity: .55; cursor: default; }
+    .msg { margin: 14px 0 0; font-size: 13px; min-height: 1em; }
+    .msg.err { color: var(--danger); }
+    .msg.ok { color: #2e9e5b; }
+    footer { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border);
+             font-size: 12px; color: var(--muted); }
+    footer a { color: var(--muted); cursor: pointer; text-decoration: underline; }
+</style>
+</head>
+<body>
+<main class="card">
+    <h1>接入面板</h1>
+    <p class="lead">填写后端信息后进入面板。这些值只保存在本机浏览器，不会上传到服务器。</p>
+
+    <form id="form" autocomplete="off">
+        <div class="field">
+            <label for="url">后端地址</label>
+            <input id="url" name="url" type="url" required
+                   placeholder="https://example.com:8443" spellcheck="false">
+            <p class="hint">mihomo external-controller 的地址</p>
+        </div>
+
+        <div class="field">
+            <label for="secret">密钥</label>
+            <input id="secret" name="secret" type="password" required
+                   placeholder="mihomo external-controller 的 secret" spellcheck="false">
+            <p class="hint">保存前会先校验连通性</p>
+        </div>
+
+        <button id="submit" type="submit">进入面板</button>
+        <p class="msg" id="msg"></p>
+    </form>
+
+    <footer>
+        配置保存在本浏览器的 localStorage 中。
+        <a id="reset" href="#">清除本机配置</a>
+    </footer>
+</main>
+
+<script>
+(function () {
+    'use strict';
+
+    var ENDPOINT_KEY = 'endpointList';
+    var SELECTED_KEY = 'selectedEndpoint';
+    // 控制令牌与 mihomo 密钥取同一个值，所以这里存的就是密钥本身
+    var TOKEN_KEY = 'mcx-control-token';
+    var ENDPOINT_ID = 'gate';
+    var PANEL_PATH = '/panel.html';
+
+    var form = document.getElementById('form');
+    var msg = document.getElementById('msg');
+    var submit = document.getElementById('submit');
+
+    function read(key, fallback) {
+        try {
+            var v = localStorage.getItem(key);
+            return v === null ? fallback : v;
+        } catch (e) {
+            return fallback;
+        }
+    }
+
+    function write(key, value) {
+        localStorage.setItem(key, value);
+    }
+
+    // 已经配好了就直接进面板
+    if (read(SELECTED_KEY, '')) {
+        location.replace(PANEL_PATH);
+        return;
+    }
+
+    function say(text, kind) {
+        msg.textContent = text;
+        msg.className = 'msg' + (kind ? ' ' + kind : '');
+    }
+
+    function list() {
+        try {
+            var parsed = JSON.parse(read(ENDPOINT_KEY, '[]'));
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function base(url) {
+        return url.replace(/\/+$/, '');
+    }
+
+    /**
+     * 校验后端可达且密钥正确。
+     * mihomo 的 external-controller 自带 CORS（external-controller-cors），
+     * 所以这个探测从浏览器发也没问题。
+     */
+    function probeBackend(url, secret) {
+        return fetch(base(url) + '/version', {
+            headers: { Authorization: 'Bearer ' + secret },
+            cache: 'no-store'
+        }).then(function (res) {
+            if (res.status === 401 || res.status === 403) {
+                throw new Error('密钥不正确（后端返回 ' + res.status + '）');
+            }
+            if (!res.ok) {
+                throw new Error('后端返回 HTTP ' + res.status);
+            }
+            return res.json().then(function (j) {
+                if (!j || !j.version) throw new Error('响应不是 mihomo 的 /version');
+                return j.version;
+            });
+        }, function () {
+            throw new Error('连不上后端（网络错误，或被跨域策略拦截）');
+        });
+    }
+
+    /**
+     * 校验控制令牌可用。
+     *
+     * 控制令牌与 mihomo 密钥取同一个值：metacubexd-server 与 mihomo 部署在
+     * 一起时，官方 compose 的示例就是 CONTROL_TOKEN 与 CLASH_SECRET 相同，
+     * 使用者只需填一个。门页面因此只问一次密钥，两处通用。
+     */
+    function probeControl(url, secret) {
+        return fetch(base(url) + '/api/control/info?token=' + encodeURIComponent(secret), {
+            cache: 'no-store'
+        }).then(function (res) {
+            if (res.status === 401 || res.status === 403) {
+                throw new Error('后端不接受用密钥作为控制令牌');
+            }
+            if (!res.ok) {
+                throw new Error('控制接口返回 HTTP ' + res.status);
+            }
+            return res.json();
+        });
+    }
+
+    form.addEventListener('submit', function (e) {
+        e.preventDefault();
+
+        var url = document.getElementById('url').value.trim();
+        var secret = document.getElementById('secret').value.trim();
+
+        if (!/^https?:\/\//i.test(url)) {
+            say('后端地址需要以 http:// 或 https:// 开头', 'err');
+            return;
+        }
+        if (!secret) { say('请填写密钥', 'err'); return; }
+
+        submit.disabled = true;
+        say('正在校验连通性…');
+
+        probeBackend(url, secret).then(function (version) {
+            // 控制接口能用密钥就一并启用，不能用也不影响 mihomo 的部分
+            return probeControl(url, secret).then(
+                function () { return { version: version, control: true }; },
+                function (err) { return { version: version, control: false, why: err.message }; }
+            );
+        }).then(function (r) {
+            try {
+                var items = list().filter(function (it) { return it && it.id !== ENDPOINT_ID; });
+                items.unshift({ id: ENDPOINT_ID, url: url, secret: secret, label: '后端' });
+                write(ENDPOINT_KEY, JSON.stringify(items));
+                // 面板用 VueUse 的 useStorage 读这两个键，序列化方式不同：
+                // endpointList 的默认值是数组 → JSON；selectedEndpoint 的默认值
+                // 是字符串 → 原样字符串。写成 JSON 面板会读不到选中项。
+                write(SELECTED_KEY, ENDPOINT_ID);
+                if (r.control) {
+                    write(TOKEN_KEY, secret);
+                } else {
+                    try { localStorage.removeItem(TOKEN_KEY); } catch (err) { /* 忽略 */ }
+                }
+            } catch (err) {
+                submit.disabled = false;
+                say('保存失败：' + err.message, 'err');
+                return;
+            }
+            if (r.control) {
+                say('已连接（mihomo ' + r.version + '），正在进入…', 'ok');
+            } else {
+                say('已连接（mihomo ' + r.version + '）。控制中心不可用：' + r.why +
+                    '。正在进入…', 'ok');
+            }
+            setTimeout(function () { location.replace(PANEL_PATH); }, 900);
+        }).catch(function (err) {
+            submit.disabled = false;
+            say('校验失败：' + err.message, 'err');
+        });
+    });
+
+    document.getElementById('reset').addEventListener('click', function (e) {
+        e.preventDefault();
+        try {
+            localStorage.removeItem(ENDPOINT_KEY);
+            localStorage.removeItem(SELECTED_KEY);
+            localStorage.removeItem(TOKEN_KEY);
+        } catch (err) { /* 忽略 */ }
+        document.getElementById('url').value = '';
+        document.getElementById('secret').value = '';
+        say('已清除本机配置', 'ok');
+    });
+})();
+</script>
+</body>
+</html>

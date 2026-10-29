@@ -1,0 +1,47 @@
+name: sync
+
+on:
+  schedule:
+    # 每天 03:17 UTC 检查 upstream 是否有新版本
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 查询 upstream 最新版本
+        id: upstream
+        run: |
+          TAG=$(curl -sSfL https://api.github.com/repos/MetaCubeX/metacubexd/releases/latest \
+            | python3 -c "import json,sys;print(json.load(sys.stdin)['tag_name'])")
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: 查询当前线上版本
+        id: current
+        run: |
+          # build-info.json 由构建脚本写入 public/，内容是本次部署的 upstream 版本
+          TAG=$(curl -sSfL "${{ vars.SITE_URL }}/build-info.json" 2>/dev/null \
+            | python3 -c "import json,sys;print(json.load(sys.stdin).get('tag',''))" 2>/dev/null || echo '')
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: 有新版本则触发 Vercel 重新部署
+        if: steps.upstream.outputs.tag != steps.current.outputs.tag
+        env:
+          HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "未配置 VERCEL_DEPLOY_HOOK，跳过。请在 Vercel 项目设置里创建 Deploy Hook 并填入仓库 secret。"
+            exit 0
+          fi
+          echo "upstream=${{ steps.upstream.outputs.tag }} 线上=${{ steps.current.outputs.tag }}，触发重新部署"
+          curl -sSf -X POST "$HOOK"
+          echo "已触发"
+
+      - name: 无新版本
+        if: steps.upstream.outputs.tag == steps.current.outputs.tag
+        run: |
+          echo "已是最新版本（${{ steps.upstream.outputs.tag }}），无需部署"

@@ -1,0 +1,10 @@
+{
+    "name": "vercel-metacubex",
+    "version": "1.0.0",
+    "description": "MetaCubeXD 面板静态托管（门页面 + 构建时拉取 upstream）+ control API 代理",
+    "private": true,
+    "scripts": {
+        "build": "node scripts/build.mjs",
+        "test": "node --test"
+    }
+}

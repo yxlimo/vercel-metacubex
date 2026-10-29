@@ -1,0 +1,10 @@
+node_modules/
+.vercel
+.env
+.env.local
+*.log
+dist.tgz
+.DS_Store
+
+# 构建产物：每次部署由 scripts/build.mjs 现拉现组装
+public/
