@@ -43,26 +43,29 @@ window.metacubexd.control = {
 | 凭据 | 存在哪 | 谁校验 |
 | --- | --- | --- |
 | 后端地址 | 本机 localStorage（`endpointList`） | — |
-| 密钥 | 本机 localStorage（`endpointList`、`mcx-control-token`） | mihomo / metacubexd-server |
+| 密钥 | 本机 localStorage（`endpointList`） | mihomo |
+| 控制令牌 | 本机 localStorage（`mcx-control-token`） | metacubexd-server |
 
 服务端不持有也不预填任何凭据——服务出去的 `config.js` 里只有空的后端地址。
 
-门页面只问**后端地址**和**密钥**两项，保存前会先探一次后端的 `/version`
-确认地址和密钥都对，校验通过才写 localStorage。
+门页面问三项，保存前会先探后端的 `/version` 确认地址和密钥都对，校验通过才
+写 localStorage。
 
-### 控制令牌与密钥同值
+### 控制令牌
 
-面板的 control 客户端需要一个控制令牌才能调 `/api/control`。这里让它和
-mihomo 密钥取**同一个值**：metacubexd-server 与 mihomo 部署在一起时，官方
+面板的 control 客户端需要一个控制令牌才能调 `/api/control`。门页面里它
+**留空即沿用上面的密钥**：metacubexd-server 与 mihomo 部署在一起时，官方
 compose 的示例就是 `CONTROL_TOKEN` 与 `CLASH_SECRET` 相同，使用者只填一个。
 
-门页面因此不单独收集控制令牌——它用同一个密钥探测 `/api/control/info`，
-通了就把密钥同时写进 `mcx-control-token`，`api/config.js` 再从本机
-localStorage 读出来填进 `window.metacubexd.control.token`。服务端仍然不持有
-也不下发。
+两者不同时单独填控制令牌，探测会用填的那个值：
 
-后端若不接受用密钥当控制令牌（两者不相等），门页面会提示「控制中心不可用」
-但不影响 mihomo 的部分。
+| 门页面填法 | localStorage 里的 `mcx-control-token` |
+| --- | --- |
+| 只填密钥 | 密钥（与 mihomo 共用） |
+| 密钥 + 不同的控制令牌 | 填的那个控制令牌 |
+
+探测失败（后端不接受这个令牌）时提示「控制中心不可用」，但 mihomo 的部分
+照常可用，localStorage 里也不会留下控制令牌。
 
 ## 后端要满足的条件
 

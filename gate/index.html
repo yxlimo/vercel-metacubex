@@ -66,6 +66,7 @@
     }
     input:focus { border-color: var(--accent); }
     input[type=password] { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .opt { font-weight: 400; color: var(--muted); font-size: 12px; }
     button {
         width: 100%;
         margin-top: 6px;
@@ -106,6 +107,13 @@
             <input id="secret" name="secret" type="password" required
                    placeholder="mihomo external-controller 的 secret" spellcheck="false">
             <p class="hint">保存前会先校验连通性</p>
+        </div>
+
+        <div class="field">
+            <label for="token">控制令牌 <span class="opt">（可选）</span></label>
+            <input id="token" name="token" type="password"
+                   placeholder="留空则与密钥相同" spellcheck="false">
+            <p class="hint">metacubexd-server 的控制令牌。留空则沿用上面的密钥</p>
         </div>
 
         <button id="submit" type="submit">进入面板</button>
@@ -198,16 +206,16 @@
     /**
      * 校验控制令牌可用。
      *
-     * 控制令牌与 mihomo 密钥取同一个值：metacubexd-server 与 mihomo 部署在
+     * 控制令牌默认与 mihomo 密钥相同：metacubexd-server 与 mihomo 部署在
      * 一起时，官方 compose 的示例就是 CONTROL_TOKEN 与 CLASH_SECRET 相同，
-     * 使用者只需填一个。门页面因此只问一次密钥，两处通用。
+     * 使用者只需填一个。两者不同时才需要单独填控制令牌。
      */
-    function probeControl(url, secret) {
-        return fetch(base(url) + '/api/control/info?token=' + encodeURIComponent(secret), {
+    function probeControl(url, token) {
+        return fetch(base(url) + '/api/control/info?token=' + encodeURIComponent(token), {
             cache: 'no-store'
         }).then(function (res) {
             if (res.status === 401 || res.status === 403) {
-                throw new Error('后端不接受用密钥作为控制令牌');
+                throw new Error('后端不接受这个控制令牌');
             }
             if (!res.ok) {
                 throw new Error('控制接口返回 HTTP ' + res.status);
@@ -221,6 +229,9 @@
 
         var url = document.getElementById('url').value.trim();
         var secret = document.getElementById('secret').value.trim();
+        var token = document.getElementById('token').value.trim();
+        // 控制令牌留空时沿用密钥
+        var controlToken = token || secret;
 
         if (!/^https?:\/\//i.test(url)) {
             say('后端地址需要以 http:// 或 https:// 开头', 'err');
@@ -232,8 +243,8 @@
         say('正在校验连通性…');
 
         probeBackend(url, secret).then(function (version) {
-            // 控制接口能用密钥就一并启用，不能用也不影响 mihomo 的部分
-            return probeControl(url, secret).then(
+            // 控制接口能用这个令牌就一并启用，不能用也不影响 mihomo 的部分
+            return probeControl(url, controlToken).then(
                 function () { return { version: version, control: true }; },
                 function (err) { return { version: version, control: false, why: err.message }; }
             );
@@ -247,7 +258,7 @@
                 // 是字符串 → 原样字符串。写成 JSON 面板会读不到选中项。
                 write(SELECTED_KEY, ENDPOINT_ID);
                 if (r.control) {
-                    write(TOKEN_KEY, secret);
+                    write(TOKEN_KEY, controlToken);
                 } else {
                     try { localStorage.removeItem(TOKEN_KEY); } catch (err) { /* 忽略 */ }
                 }
@@ -278,6 +289,7 @@
         } catch (err) { /* 忽略 */ }
         document.getElementById('url').value = '';
         document.getElementById('secret').value = '';
+        document.getElementById('token').value = '';
         say('已清除本机配置', 'ok');
     });
 })();

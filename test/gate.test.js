@@ -35,13 +35,16 @@ function findUrls(text) {
     assert.ok(gate.includes("'endpointList'"), '门页面应写 endpointList');
     assert.ok(gate.includes("'selectedEndpoint'"), '门页面应写 selectedEndpoint');
 
-    // 1b. 门页面不收集控制令牌输入框
-    //     控制令牌与 mihomo 密钥取同一个值：metacubexd-server 与 mihomo 部署
-    //     在一起时，官方 compose 的示例就是 CONTROL_TOKEN 与 CLASH_SECRET
-    //     相同，使用者只需填一个。
-    assert.ok(!/id="token"/.test(gate), '门页面不应有令牌输入框');
-    assert.ok(gate.includes('write(TOKEN_KEY, secret)'),
-        '控制令牌应直接用密钥，不再单独收集');
+    // 1b. 控制令牌是可选的
+    //     留空时沿用 mihomo 密钥——metacubexd-server 与 mihomo 部署在一起时，
+    //     官方 compose 的示例就是 CONTROL_TOKEN 与 CLASH_SECRET 相同。
+    //     两者不同时才需要单独填。
+    assert.ok(/id="token"/.test(gate), '控制令牌输入框应存在');
+    assert.ok(!/id="token"[^>]*required/.test(gate), '控制令牌不应是必填');
+    assert.ok(gate.includes('var controlToken = token || secret;'),
+        '控制令牌留空时应沿用密钥');
+    assert.ok(gate.includes('write(TOKEN_KEY, controlToken)'),
+        '控制令牌应单独存储');
 
     // 1c. 写入格式必须匹配面板的序列化方式
     //     面板用 VueUse 的 useStorage：endpointList 默认值是数组 → JSON；
